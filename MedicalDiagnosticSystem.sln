@@ -1,0 +1,21 @@
+﻿Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ApiGateway", "ApiGateway\ApiGateway.csproj", "{3850D03A-D61B-479A-9881-75A96B4AC08C}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DiagnosisOrchestrator", "DiagnosisOrchestrator\DiagnosisOrchestrator.csproj", "{2761E7F3-2014-44BE-99C9-1B74A18EE167}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{3850D03A-D61B-479A-9881-75A96B4AC08C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3850D03A-D61B-479A-9881-75A96B4AC08C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3850D03A-D61B-479A-9881-75A96B4AC08C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3850D03A-D61B-479A-9881-75A96B4AC08C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2761E7F3-2014-44BE-99C9-1B74A18EE167}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2761E7F3-2014-44BE-99C9-1B74A18EE167}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2761E7F3-2014-44BE-99C9-1B74A18EE167}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2761E7F3-2014-44BE-99C9-1B74A18EE167}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
