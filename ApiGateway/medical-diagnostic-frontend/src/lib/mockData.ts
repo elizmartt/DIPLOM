@@ -1,0 +1,218 @@
+import {CaseResults, DashboardStats, DiagnosisCase, Doctor, Patient,} from '@/types';
+
+export const mockDoctor: Doctor = {
+    doctor_id: 'doc-001',
+    email: 'dr.avetisyan@hospital.am',
+    full_name: 'Dr. Armen Avetisyan',
+    specialization: 'Radiology & Oncology',
+    hospital_affiliation: 'Yerevan Medical Center',
+    role: 'radiology & Oncology',
+    is_active: true,
+    created_at: '2024-01-15T08:00:00Z',
+    updated_at: '2024-01-15T08:00:00Z',
+};
+
+export const mockPatients: Patient[] = [
+    {
+        patient_id: 'pat-001',
+        patient_code: 'AM-2024-001',
+        age: 58,
+        gender: 'male',
+        created_at: '2024-11-01T10:00:00Z',
+        updated_at: '2024-11-01T10:00:00Z'
+    },
+    {
+        patient_id: 'pat-002',
+        patient_code: 'AM-2024-002',
+        age: 42,
+        gender: 'female',
+        created_at: '2024-11-05T14:00:00Z',
+        updated_at: '2024-11-05T14:00:00Z'
+    },
+    {
+        patient_id: 'pat-003',
+        patient_code: 'AM-2024-003',
+        age: 67,
+        gender: 'male',
+        created_at: '2024-11-10T09:00:00Z',
+        updated_at: '2024-11-10T09:00:00Z'
+    },
+    {
+        patient_id: 'pat-004',
+        patient_code: 'AM-2024-004',
+        age: 35,
+        gender: 'female',
+        created_at: '2024-11-12T11:00:00Z',
+        updated_at: '2024-11-12T11:00:00Z'
+    },
+    {
+        patient_id: 'pat-005',
+        patient_code: 'AM-2024-005',
+        age: 73,
+        gender: 'male',
+        created_at: '2024-11-15T16:00:00Z',
+        updated_at: '2024-11-15T16:00:00Z'
+    },
+];
+
+export const mockCases: DiagnosisCase[] = [
+    {
+        case_id: 'case-001',
+        patient_id: 'pat-001',
+        doctor_id: 'doc-001',
+        diagnosis_type: 'brain_tumor',
+        status: 'completed',
+        priority: 'high',
+        doctor_diagnosis: 'Glioma - Grade II',
+        doctor_notes: 'Patient shows signs consistent with grade II glioma. Recommend MRI follow-up in 3 months.',
+        created_at: '2024-11-20T09:00:00Z',
+        completed_at: '2024-11-20T14:30:00Z',
+        updated_at: '2024-11-20T14:30:00Z',
+        patient: mockPatients[0],
+        doctor: mockDoctor,
+    },
+    {
+        case_id: 'case-002',
+        patient_id: 'pat-002',
+        doctor_id: 'doc-001',
+        diagnosis_type: 'lung_cancer',
+        status: 'in_review',
+        priority: 'critical',
+        doctor_diagnosis: null,
+        doctor_notes: null,
+        created_at: '2024-11-22T10:00:00Z',
+        completed_at: null,
+        updated_at: '2024-11-22T12:00:00Z',
+        patient: mockPatients[1],
+        doctor: mockDoctor,
+    },
+    {
+        case_id: 'case-003',
+        patient_id: 'pat-003',
+        doctor_id: 'doc-001',
+        diagnosis_type: 'brain_tumor',
+        status: 'pending',
+        priority: 'medium',
+        doctor_diagnosis: null,
+        doctor_notes: null,
+        created_at: '2024-11-24T08:00:00Z',
+        completed_at: null,
+        updated_at: '2024-11-24T08:00:00Z',
+        patient: mockPatients[2],
+        doctor: mockDoctor,
+    },
+    {
+        case_id: 'case-004',
+        patient_id: 'pat-004',
+        doctor_id: 'doc-001',
+        diagnosis_type: 'brain_tumor',
+        status: 'completed',
+        priority: 'low',
+        doctor_diagnosis: 'Meningioma - Benign',
+        doctor_notes: 'Small meningioma detected. No immediate intervention required. Annual monitoring recommended.',
+        created_at: '2024-11-18T11:00:00Z',
+        completed_at: '2024-11-19T16:00:00Z',
+        updated_at: '2024-11-19T16:00:00Z',
+        patient: mockPatients[3],
+        doctor: mockDoctor,
+    },
+];
+
+export const mockDashboardStats: DashboardStats = {
+    total_cases: 127,
+    pending_cases: 14,
+    in_review_cases: 8,
+    completed_cases: 105,
+    total_patients: 98,
+    avg_confidence: 0.892,
+    cases_today: 3,
+    accuracy_rate: 0.942,
+};
+
+export const mockCaseResults: CaseResults = {
+    unified: {
+        id: 'ur-001',
+        diagnosis_case_id: 'case-001',
+        final_diagnosis: 'Glioma',
+        overall_confidence: 0.918,
+        ensemble_probabilities: {
+            glioma: 0.918,
+            meningioma: 0.043,
+            pituitary: 0.021,
+            normal: 0.018,
+        },
+        contributing_modules: [
+            {module: 'imaging', weight: 0.40, prediction: 'Glioma', confidence: 0.93},
+            {module: 'clinical', weight: 0.30, prediction: 'Glioma', confidence: 0.87},
+            {module: 'laboratory', weight: 0.30, prediction: 'Glioma', confidence: 0.91},
+        ],
+        risk_level: 'high',
+        recommendations: [
+            'Refer to neurosurgery for consultation',
+            'Order contrast-enhanced MRI for better delineation',
+            'Schedule follow-up in 4–6 weeks',
+            'Consider biopsy for definitive grade classification',
+        ],
+        explainability_summary: 'The imaging module identified characteristic hyperintense lesion in the right temporal lobe. Clinical symptoms (progressive headache, cognitive changes) are consistent with glioma presentation. Laboratory markers support inflammatory response typical of glioma.',
+        status: 'completed',
+        total_processing_time_ms: 2847,
+        error_details: null,
+        created_at: '2024-11-20T10:15:00Z',
+        updated_at: '2024-11-20T10:15:00Z',
+    },
+    imaging: {
+        id: 'ir-001',
+        diagnosis_case_id: 'case-001',
+        prediction: 'Glioma',
+        confidence: 0.93,
+        probabilities: {glioma: 0.93, meningioma: 0.04, pituitary: 0.02, normal: 0.01},
+        processing_time_ms: 1240,
+        explainability_data: {
+            grad_cam_path: '/gradcam/case-001-heatmap.png',
+        },
+        success: true,
+        error_message: null,
+        created_at: '2024-11-20T10:14:00Z',
+    },
+    clinical: {
+        id: 'cr-001',
+        diagnosis_case_id: 'case-001',
+        prediction: 'Glioma',
+        confidence: 0.87,
+        probabilities: {glioma: 0.87, meningioma: 0.07, pituitary: 0.04, normal: 0.02},
+        processing_time_ms: 340,
+        explainability_data: {
+            shap_values: {
+                headache_severity: 0.31,
+                cognitive_changes: 0.28,
+                seizure_history: 0.19,
+                age: 0.12,
+                smoking_history: 0.06,
+                blood_pressure: 0.04,
+            },
+        },
+        success: true,
+        error_message: null,
+        created_at: '2024-11-20T10:14:00Z',
+    },
+    laboratory: {
+        id: 'lr-001',
+        diagnosis_case_id: 'case-001',
+        prediction: 'Glioma',
+        confidence: 0.91,
+        probabilities: {glioma: 0.91, meningioma: 0.05, pituitary: 0.02, normal: 0.02},
+        processing_time_ms: 267,
+        explainability_data: {
+            feature_importance: {
+                ldh_level: 0.35,
+                protein_markers: 0.29,
+                wbc_count: 0.18,
+                glucose_level: 0.11,
+                hemoglobin: 0.07,
+            },
+        },
+        success: true,
+        error_message: null,
+        created_at: '2024-11-20T10:14:00Z',
+    },
+};

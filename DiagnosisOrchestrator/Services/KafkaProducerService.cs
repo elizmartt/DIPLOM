@@ -1,285 +1,153 @@
-using Confluent.Kafka;
-using DiagnosisOrchestrator.Models;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
-using System;
+﻿using Confluent.Kafka;
 using System.Text.Json;
-using System.Threading.Tasks;
+using DiagnosisOrchestrator.Models;
 
 namespace DiagnosisOrchestrator.Services
 {
-    /// <summary>
-    /// Kafka producer service interface
-    /// </summary>
-    public interface IKafkaProducerService
-    {
-        Task PublishDiagnosisRequestAsync(DiagnosisRequest request);
-        Task PublishDiagnosisResultAsync(UnifiedDiagnosis diagnosis);
-    }
-
-    /// <summary>
-    /// Kafka configuration options
-    /// </summary>
-    public class KafkaOptions
-    {
-        public required string BootstrapServers { get; set; }
-        
-        // Request topics (to Python AI modules)
-        public string ImagingRequestTopic { get; set; } = "imaging-requests";
-        public string ClinicalRequestTopic { get; set; } = "clinical-requests";
-        public string LabRequestTopic { get; set; } = "lab-requests";
-        
-        // Result topics (from Python AI modules)
-        public string ImagingResultTopic { get; set; } = "imaging-results";
-        public string ClinicalResultTopic { get; set; } = "clinical-results";
-        public string LabResultTopic { get; set; } = "lab-results";
-        
-        // Legacy topics (keep for backwards compatibility)
-        public string DiagnosisRequestTopic { get; set; } = "diagnosis-requests";
-        public string DiagnosisResultTopic { get; set; } = "diagnosis-results";
-        
-        public string ClientId { get; set; } = "diagnosis-orchestrator";
-        public int MessageTimeoutMs { get; set; } = 10000;
-    }
-
-    /// <summary>
-    /// Kafka producer for publishing diagnosis messages to AI modules
-    /// </summary>
-    public class KafkaProducerService : IKafkaProducerService, IDisposable
+    public class KafkaProducerService : IDisposable
     {
         private readonly IProducer<string, string> _producer;
-        private readonly KafkaOptions _options;
         private readonly ILogger<KafkaProducerService> _logger;
-        private readonly JsonSerializerOptions _jsonOptions;
+        private readonly IConfiguration _configuration;
 
-        public KafkaProducerService(
-            IOptions<KafkaOptions> options,
-            ILogger<KafkaProducerService> logger)
+        // Brain tumor topics
+        private const string BRAIN_IMAGING_TOPIC = "brain-imaging-requests";
+        private const string BRAIN_CLINICAL_TOPIC = "brain-clinical-requests";
+        private const string BRAIN_LAB_TOPIC = "brain-lab-requests";
+
+        // Lung cancer topics
+        private const string LUNG_IMAGING_TOPIC = "lung-imaging-requests";
+        private const string LUNG_CLINICAL_TOPIC = "lung-clinical-requests";
+        private const string LUNG_LAB_TOPIC = "lung-lab-requests";
+
+        public KafkaProducerService(ILogger<KafkaProducerService> logger, IConfiguration configuration)
         {
-            _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
-            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _logger = logger;
 
             var config = new ProducerConfig
             {
-                BootstrapServers = _options.BootstrapServers,
-                ClientId = _options.ClientId,
-                Acks = Acks.All,  // FIXED: Changed from Acks.Leader for idempotence
-                MessageTimeoutMs = _options.MessageTimeoutMs,
-                EnableIdempotence = true,
-                CompressionType = CompressionType.Snappy
+                BootstrapServers = configuration["Kafka:BootstrapServers"] ?? "localhost:9092",
+                ClientId = "diagnosis-orchestrator-producer",
+                Acks = Acks.Leader,  
+                EnableIdempotence = false,  
+                MessageSendMaxRetries = 3,
+                RetryBackoffMs = 100
             };
 
-            _producer = new ProducerBuilder<string, string>(config)
-                .SetErrorHandler((_, error) =>
-                {
-                    _logger.LogError("Kafka error: {Reason}", error.Reason);
-                })
-                .Build();
-
-            _jsonOptions = new JsonSerializerOptions
-            {
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-                WriteIndented = false
-            };
-
-            _logger.LogInformation("Kafka producer initialized: {Servers}", _options.BootstrapServers);
+            _producer = new ProducerBuilder<string, string>(config).Build();
+            _logger.LogInformation("Kafka producer initialized with server: {Server}", 
+                configuration["Kafka:BootstrapServers"] ?? "localhost:9092");
         }
 
-        /// <summary>
-        /// Publish diagnosis request to all three AI module topics
-        /// </summary>
-        public async Task PublishDiagnosisRequestAsync(DiagnosisRequest request)
+        public async Task PublishBrainDiagnosisRequestAsync(DiagnosisRequest request)
         {
-            var requestId = request.DiagnosisCaseId.ToString();
-            var patientId = request.PatientId.ToString();
+            await PublishDiagnosisRequestAsync(
+                request,
+                BRAIN_IMAGING_TOPIC,
+                BRAIN_CLINICAL_TOPIC,
+                BRAIN_LAB_TOPIC,
+                "Brain");
+        }
 
+        public async Task PublishLungDiagnosisRequestAsync(DiagnosisRequest request)
+        {
+            await PublishDiagnosisRequestAsync(
+                request,
+                LUNG_IMAGING_TOPIC,
+                LUNG_CLINICAL_TOPIC,
+                LUNG_LAB_TOPIC,
+                "Lung");
+        }
+    
+        public async Task PublishToTopicAsync(string topic, object payload)
+        {
             try
             {
-                // Send to all three modules in parallel
-                var tasks = new[]
-                {
-                    SendImagingRequestAsync(requestId, patientId, request.ImagingData),
-                    SendClinicalRequestAsync(requestId, patientId, request.ClinicalData),
-                    SendLabRequestAsync(requestId, patientId, request.LaboratoryData)
-                };
-
-                await Task.WhenAll(tasks);
-
-                _logger.LogInformation(
-                    "Published diagnosis request {RequestId} to all three AI modules",
-                    requestId);
+                var key = Guid.NewGuid().ToString(); 
+                await PublishAsync(topic, key, payload);
+                _logger.LogInformation("Successfully published message to topic: {Topic}", topic);
             }
             catch (Exception ex)
             {
-                _logger.LogError(
-                    ex,
-                    "Failed to publish diagnosis request {RequestId}",
-                    requestId);
+                _logger.LogError(ex, "Error publishing to topic: {Topic}", topic);
                 throw;
             }
         }
-
-        /// <summary>
-        /// Send imaging request to Python imaging module
-        /// </summary>
-        private async Task SendImagingRequestAsync(string requestId, string patientId, ImagingData? data)
+        private async Task PublishDiagnosisRequestAsync(
+            DiagnosisRequest request,
+            string imagingTopic,
+            string clinicalTopic,
+            string labTopic,
+            string diagnosisType)
         {
-            if (data == null)
+            var requestId = request.DiagnosisCaseId.ToString();
+            _logger.LogInformation("Publishing {Type} diagnosis request {RequestId} to Kafka", 
+                diagnosisType, requestId);
+
+            var tasks = new List<Task>();
+
+            if (request.ImagingData != null)
             {
-                _logger.LogWarning("No imaging data provided for request {RequestId}", requestId);
-                return;
-            }
-
-            var pythonRequest = new
-            {
-                request_id = requestId,
-                patient_id = patientId,
-                timestamp = DateTime.UtcNow.ToString("O"),
-                image_data = data.ImagePath  // In production, this should be base64 encoded image
-            };
-
-            await PublishToTopicAsync(
-                _options.ImagingRequestTopic,
-                requestId,
-                pythonRequest,
-                "imaging-request");
-        }
-
-        /// <summary>
-        /// Send clinical request to Python clinical module
-        /// </summary>
-        private async Task SendClinicalRequestAsync(string requestId, string patientId, ClinicalData? data)
-        {
-            if (data == null)
-            {
-                _logger.LogWarning("No clinical data provided for request {RequestId}", requestId);
-                return;
-            }
-
-            var pythonRequest = new
-            {
-                request_id = requestId,
-                patient_id = patientId,
-                timestamp = DateTime.UtcNow.ToString("O"),
-                symptoms = data.Symptoms
-            };
-
-            await PublishToTopicAsync(
-                _options.ClinicalRequestTopic,
-                requestId,
-                pythonRequest,
-                "clinical-request");
-        }
-
-        /// <summary>
-        /// Send lab request to Python laboratory module
-        /// </summary>
-        private async Task SendLabRequestAsync(string requestId, string patientId, LaboratoryData? data)
-        {
-            if (data == null)
-            {
-                _logger.LogWarning("No laboratory data provided for request {RequestId}", requestId);
-                return;
-            }
-
-            var pythonRequest = new
-            {
-                request_id = requestId,
-                patient_id = patientId,
-                timestamp = DateTime.UtcNow.ToString("O"),
-                lab_results = data.TumorMarkers
-            };
-
-            await PublishToTopicAsync(
-                _options.LabRequestTopic,
-                requestId,
-                pythonRequest,
-                "lab-request");
-        }
-
-        /// <summary>
-        /// Generic method to publish to a Kafka topic
-        /// </summary>
-        private async Task PublishToTopicAsync(string topic, string key, object payload, string messageType)
-        {
-            try
-            {
-                var message = new Message<string, string>
+                var payload = new
                 {
-                    Key = key,
-                    Value = JsonSerializer.Serialize(payload, _jsonOptions),
-                    Headers = new Headers
-                    {
-                        { "message-type", System.Text.Encoding.UTF8.GetBytes(messageType) },
-                        { "correlation-id", System.Text.Encoding.UTF8.GetBytes(key) },
-                        { "timestamp", System.Text.Encoding.UTF8.GetBytes(DateTime.UtcNow.ToString("O")) }
-                    }
+                    requestId = requestId,
+                    diagnosisCaseId = request.DiagnosisCaseId,
+                    patientId = request.PatientId,
+                    imagingData = request.ImagingData
                 };
 
-                var result = await _producer.ProduceAsync(topic, message);
-
-                _logger.LogDebug(
-                    "Published {MessageType} to {Topic} - Partition: {Partition}, Offset: {Offset}",
-                    messageType,
-                    topic,
-                    result.Partition.Value,
-                    result.Offset.Value);
+                tasks.Add(PublishAsync(imagingTopic, requestId, payload));
             }
-            catch (ProduceException<string, string> ex)
-            {
-                _logger.LogError(
-                    ex,
-                    "Failed to publish to {Topic}: {Reason}",
-                    topic,
-                    ex.Error.Reason);
-                throw;
-            }
-        }
 
-        /// <summary>
-        /// Publish final unified diagnosis result
-        /// </summary>
-        public async Task PublishDiagnosisResultAsync(UnifiedDiagnosis diagnosis)
-        {
-            try
+            if (request.ClinicalData != null)
             {
-                var message = new Message<string, string>
+                var payload = new
                 {
-                    Key = diagnosis.DiagnosisCaseId.ToString(),
-                    Value = JsonSerializer.Serialize(diagnosis, _jsonOptions),
-                    Headers = new Headers
-                    {
-                        { "message-type", System.Text.Encoding.UTF8.GetBytes("diagnosis-result") },
-                        { "correlation-id", System.Text.Encoding.UTF8.GetBytes(diagnosis.DiagnosisCaseId.ToString()) },
-                        { "diagnosis", System.Text.Encoding.UTF8.GetBytes(diagnosis.FinalDiagnosis.ToString()) },
-                        { "confidence", System.Text.Encoding.UTF8.GetBytes(diagnosis.OverallConfidence.ToString("F4")) },
-                        { "timestamp", System.Text.Encoding.UTF8.GetBytes(DateTime.UtcNow.ToString("O")) }
-                    }
+                    requestId = requestId,
+                    diagnosisCaseId = request.DiagnosisCaseId,
+                    patientId = request.PatientId,
+                    clinicalData = request.ClinicalData
                 };
 
-                var result = await _producer.ProduceAsync(_options.DiagnosisResultTopic, message);
+                tasks.Add(PublishAsync(clinicalTopic, requestId, payload));
+            }
 
-                _logger.LogInformation(
-                    "Published diagnosis result for case {CaseId}: {Diagnosis} ({Confidence:P2}) to partition {Partition}",
-                    diagnosis.DiagnosisCaseId,
-                    diagnosis.FinalDiagnosis,
-                    diagnosis.OverallConfidence,
-                    result.Partition.Value);
-            }
-            catch (ProduceException<string, string> ex)
+            if (request.LaboratoryData != null)
             {
-                _logger.LogError(
-                    ex,
-                    "Failed to publish diagnosis result for case {CaseId}: {Reason}",
-                    diagnosis.DiagnosisCaseId,
-                    ex.Error.Reason);
-                throw;
+                var payload = new
+                {
+                    requestId = requestId,
+                    diagnosisCaseId = request.DiagnosisCaseId,
+                    patientId = request.PatientId,
+                    laboratoryData = request.LaboratoryData
+                };
+
+                tasks.Add(PublishAsync(labTopic, requestId, payload));
             }
+
+            await Task.WhenAll(tasks);
+            _logger.LogInformation("Published {Type} request {RequestId} to {Count} topics",
+                diagnosisType, requestId, tasks.Count);
+        }
+
+        private async Task PublishAsync(string topic, string key, object payload)
+        {
+            var message = new Message<string, string>
+            {
+                Key = key,
+                Value = JsonSerializer.Serialize(payload, new JsonSerializerOptions
+                {
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                })
+            };
+
+            var result = await _producer.ProduceAsync(topic, message);
+            _logger.LogInformation("Published to {Topic} - Partition: {Partition}, Offset: {Offset}",
+                topic, result.Partition.Value, result.Offset.Value);
         }
 
         public void Dispose()
         {
-            _logger.LogInformation("Disposing Kafka producer");
             _producer?.Flush(TimeSpan.FromSeconds(10));
             _producer?.Dispose();
         }

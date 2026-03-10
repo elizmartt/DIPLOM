@@ -1,41 +1,330 @@
-version: '3.8'
 
 services:
+
+  # ══════════════════════════════════════════════════════════════════
+  # INFRASTRUCTURE
+  # ══════════════════════════════════════════════════════════════════
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: medical-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+      - ./redis.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    networks:
+      - medical-network
+
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
+    container_name: medical-zookeeper
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
+      KAFKA_HEAP_OPTS: "-Xmx256m -Xms128m"
     ports:
       - "2181:2181"
+    networks:
+      - medical-network
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
 
   kafka:
     image: confluentinc/cp-kafka:7.5.0
+    container_name: medical-kafka
     depends_on:
-      - zookeeper
+      zookeeper:
+        condition: service_healthy
     ports:
       - "9092:9092"
+      - "29092:29092"
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_HEAP_OPTS: "-Xmx512m -Xms256m"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    networks:
+      - medical-network
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:29092"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
 
-  # Mock downstream service - Weather API
-  weather-service:
-    image: mockserver/mockserver:latest
-    ports:
-      - "5001:1080"
-    environment:
-      MOCKSERVER_INITIALIZATION_JSON_PATH: /config/weather-expectations.json
+  kafka-init:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: medical-kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ['/bin/sh', '-c']
+    command: |
+      "
+      echo ' Creating Kafka topics...'
 
-  # Mock downstream service - User API  
-  user-service:
-    image: mockserver/mockserver:latest
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 1 --replication-factor 1 --topic brain-imaging-requests
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 1 --replication-factor 1 --topic brain-imaging-results
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 1 --replication-factor 1 --topic brain-clinical-requests
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 1 --replication-factor 1 --topic brain-clinical-results
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 1 --replication-factor 1 --topic brain-lab-requests
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 1 --replication-factor 1 --topic brain-lab-results
+
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 1 --replication-factor 1 --topic lung-imaging-requests
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 1 --replication-factor 1 --topic lung-imaging-results
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 1 --replication-factor 1 --topic lung-clinical-requests
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 1 --replication-factor 1 --topic lung-clinical-results
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 1 --replication-factor 1 --topic lung-lab-requests
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 1 --replication-factor 1 --topic lung-lab-results
+
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 1 --replication-factor 1 --topic shap-explanations
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 1 --replication-factor 1 --topic diagnosis-requests
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 1 --replication-factor 1 --topic diagnosis-results
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 1 --replication-factor 1 --topic gateway-events
+
+      echo ' All Kafka topics created successfully!'
+      kafka-topics --list --bootstrap-server kafka:29092
+      "
+    networks:
+      - medical-network
+
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: medical-redis-commander
     ports:
-      - "5002:1080"
+      - "8081:8081"
     environment:
-      MOCKSERVER_INITIALIZATION_JSON_PATH: /config/user-expectations.json
+      - REDIS_HOSTS=local:redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - medical-network
+    profiles:
+      - dev
+
+  # ══════════════════════════════════════════════════════════════════
+  # C# BACKEND SERVICES
+  # ══════════════════════════════════════════════════════════════════
+
+  medical-api-gateway:
+    build:
+      context: ..
+      dockerfile: ApiGateway/Dockerfile
+    container_name: medical-api-gateway
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    ports:
+      - "5169:5169"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Docker
+      ASPNETCORE_URLS: http://0.0.0.0:5169
+      ConnectionStrings__MedicalDiagnosticDb: "Host=host.docker.internal;Port=5432;Database=medical_diagnosis_db;Username=postgres;Password=${POSTGRES_PASSWORD};Include Error Detail=true"
+      ConnectionStrings__Redis: "redis:6379"
+      Kafka__BootstrapServers: kafka:29092
+      Orchestrator__BaseUrl: http://diagnosis-orchestrator:5217
+      ServiceClusters__DiagnosisService__0: http://diagnosis-orchestrator:5217
+      ServiceClusters__ImageAnalysisService__0: http://brain-imaging-service:7010
+      ServiceClusters__SymptomAnalysisService__0: http://brain-clinical-service:7020
+      ServiceClusters__LabAnalysisService__0: http://brain-lab-service:7030
+   #   JwtSettings__SecretKey: ${JWT_SECRET_KEY}
+      JwtSettings__Issuer: MedicalDiagnosticSystem
+      JwtSettings__Audience: MedicalDiagnosticClients
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
+      S3_BUCKET_NAME: ${S3_BUCKET_NAME}
+    networks:
+      - medical-network
+    restart: unless-stopped
+
+  diagnosis-orchestrator:
+    build:
+      context: ..
+      dockerfile: DiagnosisOrchestrator/Dockerfile
+    container_name: diagnosis-orchestrator
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    ports:
+      - "5217:5217"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Docker
+      ASPNETCORE_URLS: http://0.0.0.0:5217
+      ConnectionStrings__MedicalDiagnosticDb: "Host=host.docker.internal;Port=5432;Database=medical_diagnosis_db;Username=postgres;Password=${POSTGRES_PASSWORD};Include Error Detail=true"
+      Kafka__BootstrapServers: kafka:29092
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
+      S3_BUCKET_NAME: ${S3_BUCKET_NAME}
+    networks:
+      - medical-network
+    restart: unless-stopped
+
+  # ══════════════════════════════════════════════════════════════════
+  # AI SERVICES — BRAIN
+  # ══════════════════════════════════════════════════════════════════
+
+  brain-imaging-service:
+    build:
+      context: ../Models/Brain_tumor/Imaging
+      dockerfile: Dockerfile
+    container_name: brain-imaging-service
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_REQUEST_TOPIC: brain-imaging-requests
+      KAFKA_RESULT_TOPIC: brain-imaging-results
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
+      S3_BUCKET_NAME: ${S3_BUCKET_NAME}
+    networks:
+      - medical-network
+    restart: unless-stopped
+
+  brain-clinical-service:
+    build:
+      context: ../Models/Brain_tumor/Clinical
+      dockerfile: Dockerfile
+    container_name: brain-clinical-service
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_REQUEST_TOPIC: brain-clinical-requests
+      KAFKA_RESULT_TOPIC: brain-clinical-results
+    networks:
+      - medical-network
+    restart: unless-stopped
+
+  brain-lab-service:
+    build:
+      context: ../Models/Brain_tumor/Lab
+      dockerfile: Dockerfile
+    container_name: brain-lab-service
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_REQUEST_TOPIC: brain-lab-requests
+      KAFKA_RESULT_TOPIC: brain-lab-results
+    networks:
+      - medical-network
+    restart: unless-stopped
+
+  # ══════════════════════════════════════════════════════════════════
+  # AI SERVICES — LUNG
+  # ══════════════════════════════════════════════════════════════════
+
+  lung-imaging-service:
+    build:
+      context: ../Models/Lung_cancer/lung_cancer_resnet_v2
+      dockerfile: Dockerfile
+    container_name: lung-imaging-service
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_REQUEST_TOPIC: lung-imaging-requests
+      KAFKA_RESULT_TOPIC: lung-imaging-results
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
+      S3_BUCKET_NAME: ${S3_BUCKET_NAME}
+    networks:
+      - medical-network
+    restart: unless-stopped
+
+  lung-clinical-service:
+    build:
+      context: ../Models/Lung_cancer/module2_symptoms
+      dockerfile: Dockerfile
+    container_name: lung-clinical-service
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_REQUEST_TOPIC: lung-clinical-requests
+      KAFKA_RESULT_TOPIC: lung-clinical-results
+    networks:
+      - medical-network
+    restart: unless-stopped
+
+  lung-lab-service:
+    build:
+      context: ../Models/Lung_cancer/module3_labresults
+      dockerfile: Dockerfile
+    container_name: lung-lab-service
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_REQUEST_TOPIC: lung-lab-requests
+      KAFKA_RESULT_TOPIC: lung-lab-results
+    networks:
+      - medical-network
+    restart: unless-stopped
+
+  # ══════════════════════════════════════════════════════════════════
+  # REACT FRONTEND
+  # ══════════════════════════════════════════════════════════════════
+
+  frontend:
+    build:
+      context: ../ApiGateway/medical-diagnostic-frontend
+      dockerfile: Dockerfile
+    container_name: medical-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - medical-api-gateway
+    networks:
+      - medical-network
+    restart: unless-stopped
+
+# ══════════════════════════════════════════════════════════════════
+# VOLUMES
+# ══════════════════════════════════════════════════════════════════
+volumes:
+  redis-data:
+    driver: local
+
+# ══════════════════════════════════════════════════════════════════
+# NETWORKS
+# ══════════════════════════════════════════════════════════════════
+networks:
+  medical-network:
+    driver: bridge

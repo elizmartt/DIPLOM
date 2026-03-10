@@ -1,0 +1,6 @@
+@DiagnosisOrchestratorNew_HostAddress = http://localhost:5269
+
+GET {{DiagnosisOrchestratorNew_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

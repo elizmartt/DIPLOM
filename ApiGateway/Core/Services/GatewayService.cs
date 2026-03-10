@@ -1,8 +1,6 @@
-using System;
-using System.Collections.Generic;
-using System.Threading.Tasks;
+
 using ApiGateway.Ports;
-using Microsoft.Extensions.Logging;
+
 namespace ApiGateway.Core.Services
 {
     public interface IGatewayService

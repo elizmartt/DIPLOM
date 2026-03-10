@@ -1,21 +1,17 @@
-using System;
-using System.IO;
-using System.Linq;
-using System.Threading.Tasks;
 using ApiGateway.Core.Services;
 using ApiGateway.Ports;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
-using System.Collections.Generic;
-using System.Text; 
-using ApiGateway; 
+
 
 [ApiController]
+[ApiExplorerSettings(IgnoreApi = true)]  
 public class GatewayController : ControllerBase
 {
     private readonly IGatewayService _gatewayService;
     private readonly IRateLimiter _rateLimiter;
     private readonly List<string> _serviceNames;
+    
     public GatewayController(
         IGatewayService gatewayService,
         IRateLimiter rateLimiter,
@@ -53,6 +49,7 @@ public class GatewayController : ControllerBase
         var info = await _gatewayService.GetRateLimitInfoAsync(clientId, endpoint);
         return Ok(info);
     }
+    
     [Route("[action]")]
     public async Task<IActionResult> ForwardRequest()
     {
@@ -93,7 +90,7 @@ public class GatewayController : ControllerBase
             return NotFound(new { message = $"No configured service cluster found for path prefix: /{pathPrefix}" });
         }
 
-        // rate limiting
+        
         var clientId = Request.Headers["X-Client-Id"].FirstOrDefault() ?? "anonymous";
         var endpoint = "/api/" + pathPayload;
 

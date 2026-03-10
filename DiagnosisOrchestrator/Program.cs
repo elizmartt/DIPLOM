@@ -1,125 +1,97 @@
-using DiagnosisOrchestrator.Models;
 using DiagnosisOrchestrator.Services;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Configuration;
-using System;
-using System.Linq;
+using DiagnosisOrchestrator.Configuration;
+using MedicalDiagnosticSystem.MedicalDiagnostic.Data;
+using MedicalDiagnosticSystem.MedicalDiagnostic.Data.Services;
+using MedicalDiagnosticSystem.MedicalDiagnostic.Data.Repositories.Interfaces;
+using MedicalDiagnosticSystem.MedicalDiagnostic.Data.Repositories.Implementations;
+using MedicalDiagnostic.Data.Services;
+using Amazon.SecretsManager;
+using ApiGateway.Services;
+using DatabaseIntegrationService = MedicalDiagnostic.Data.Services.DatabaseIntegrationService;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container
+builder.Configuration
+    .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
+    .AddJsonFile($"appsettings.{builder.Environment.EnvironmentName}.json", optional: true)
+    .AddEnvironmentVariables();
+
+builder.Logging
+    .AddConsole()
+    .SetMinimumLevel(LogLevel.Information)
+    .AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.Information)
+    .AddFilter("Microsoft.AspNetCore.Server.Kestrel", LogLevel.Information)
+    .AddFilter("Microsoft.Hosting.Lifetime", LogLevel.Information);
+
+// AWS SECRETS MANAGER — load before everything else
+builder.Services.AddAWSService<IAmazonSecretsManager>();
+builder.Configuration["AWS:Region"] = Environment.GetEnvironmentVariable("AWS_DEFAULT_REGION") ?? "eu-north-1";
+builder.Services.AddSingleton<AwsSecretsService>();
+
+var tempProvider = builder.Services.BuildServiceProvider();
+var secretsSvc = tempProvider.GetRequiredService<AwsSecretsService>();
+await secretsSvc.LoadSecretsAsync();
+
+builder.Configuration["ConnectionStrings:MedicalDiagnosticDb"] =
+    $"Host=host.docker.internal;Port=5432;Database=medical_diagnosis_db;Username=postgres;Password={secretsSvc.Get("password")};Include Error Detail=true";
+
+// DATABASE & REPOSITORIES
+
+builder.Services.AddDatabaseServices(builder.Configuration);
+
+builder.Services.AddScoped<IDiagnosisCaseRepository, DiagnosisCaseRepository>();
+builder.Services.AddScoped<IPatientRepository, PatientRepository>();
+builder.Services.AddScoped<IDoctorRepository, DoctorRepository>();
+builder.Services.AddScoped<IMedicalImageRepository, MedicalImageRepository>();
+builder.Services.AddScoped<IClinicalSymptomRepository, ClinicalSymptomRepository>();
+builder.Services.AddScoped<ILabTestRepository, LabTestRepository>();
+builder.Services.AddScoped<IImagingResultRepository, ImagingResultRepository>();
+builder.Services.AddScoped<IClinicalResultRepository, ClinicalResultRepository>();
+builder.Services.AddScoped<ILaboratoryResultRepository, LaboratoryResultRepository>();
+builder.Services.AddScoped<IUnifiedDiagnosisResultRepository, UnifiedDiagnosisResultRepository>();
+builder.Services.AddScoped<IAuditLogRepository, AuditLogRepository>();
+builder.Services.AddScoped<DatabaseIntegrationService>();
+
+
+// KAFKA & APPLICATION SERVICES
+
+builder.Services.AddHostedService<ShapExplanationConsumer>();
 builder.Services.AddControllers();
+builder.Services.AddSingleton<KafkaProducerService>();
+builder.Services.AddSingleton<WeightedEnsembleFusion>();
+builder.Services.AddSingleton<KafkaConsumerService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<KafkaConsumerService>());
 
-// Configure Swagger/OpenAPI
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen(options =>
+builder.Services.Configure<HostOptions>(options =>
 {
-    options.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo
-    {
-        Title = "Diagnosis Orchestrator API",
-        Version = "v1",
-        Description = "Multi-modal medical diagnosis orchestration service"
-    });
+    options.StartupTimeout = TimeSpan.FromSeconds(120);
 });
 
-// Configure options from appsettings.json
-builder.Services.Configure<OrchestratorOptions>(
-    builder.Configuration.GetSection("OrchestratorOptions"));
 
-builder.Services.Configure<ModuleEndpoints>(
-    builder.Configuration.GetSection("ModuleEndpoints"));
+// BUILD & MIDDLEWARE
 
-builder.Services.Configure<KafkaOptions>(
-    builder.Configuration.GetSection("Kafka"));
-
-// Register HttpClient with proper configuration
-builder.Services.AddHttpClient<IModuleClientService, ModuleClientService>(client =>
-{
-    client.Timeout = TimeSpan.FromSeconds(30);
-})
-.ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
-{
-    ServerCertificateCustomValidationCallback = (sender, cert, chain, sslPolicyErrors) => true // For development
-});
-
-// Register repository with connection string from configuration
-var connectionString = builder.Configuration.GetConnectionString("TimescaleDB")
-    ?? throw new InvalidOperationException("TimescaleDB connection string not configured");
-
-builder.Services.AddSingleton<IDiagnosisRepository>(sp =>
-    new DiagnosisRepository(
-        connectionString,
-        sp.GetRequiredService<ILogger<DiagnosisRepository>>()));
-
-// Register orchestrator service
-builder.Services.AddScoped<IDiagnosisOrchestratorService, DiagnosisOrchestratorService>();
-
-// Register Kafka services
-builder.Services.AddSingleton<IKafkaProducerService, KafkaProducerService>();
-builder.Services.AddHostedService<KafkaConsumerService>();
-
-// CRITICAL FIX: Make consumer available for dependency injection
-builder.Services.AddSingleton<KafkaConsumerService>(sp =>
-    (KafkaConsumerService)sp.GetServices<IHostedService>()
-        .First(s => s is KafkaConsumerService));
-
-// Add CORS for development
-builder.Services.AddCors(options =>
-{
-    options.AddDefaultPolicy(policy =>
-    {
-        policy.AllowAnyOrigin()
-              .AllowAnyMethod()
-              .AllowAnyHeader();
-    });
-});
-
-// Add health checks
-builder.Services.AddHealthChecks()
-    .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy());
-
-// Logging configuration
-builder.Logging.ClearProviders();
-builder.Logging.AddConsole();
-builder.Logging.AddDebug();
-
-if (builder.Environment.IsDevelopment())
-{
-    builder.Logging.SetMinimumLevel(LogLevel.Debug);
-}
-else
-{
-    builder.Logging.SetMinimumLevel(LogLevel.Information);
-}
+var isDocker = Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true";
+builder.WebHost.UseUrls(isDocker ? "http://0.0.0.0:5217" : "http://localhost:5217");
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI(options =>
-    {
-        options.SwaggerEndpoint("/swagger/v1/swagger.json", "Diagnosis Orchestrator API v1");
-        options.RoutePrefix = string.Empty; // Serve Swagger UI at root
-    });
-}
-
-app.UseHttpsRedirection();
-
-app.UseCors();
-
-app.UseAuthorization();
-
 app.MapControllers();
 
-app.MapHealthChecks("/health");
+app.MapGet("/health", async (MedicalDiagnosticDbContext dbContext) =>
+{
+    try
+    {
+        var canConnect = await dbContext.Database.CanConnectAsync();
+        return canConnect
+            ? Results.Ok(new { status = "healthy", database = "connected", kafka = "running", timestamp = DateTime.UtcNow })
+            : Results.Problem(title: "Database Unhealthy", detail: "Cannot connect to database", statusCode: 503);
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem(title: "Database Error", detail: ex.Message, statusCode: 503);
+    }
+});
 
-// Log startup information
-var logger = app.Services.GetRequiredService<ILogger<Program>>();
-logger.LogInformation("Diagnosis Orchestrator starting...");
-logger.LogInformation("Environment: {Environment}", app.Environment.EnvironmentName);
+Console.WriteLine($"Starting Orchestrator... Kafka: {builder.Configuration["Kafka:BootstrapServers"] ?? "NOT CONFIGURED"}");
 
 app.Run();

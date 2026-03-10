@@ -1,7 +1,10 @@
 ﻿Microsoft Visual Studio Solution File, Format Version 12.00
+# 
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ApiGateway", "ApiGateway\ApiGateway.csproj", "{3850D03A-D61B-479A-9881-75A96B4AC08C}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DiagnosisOrchestrator", "DiagnosisOrchestrator\DiagnosisOrchestrator.csproj", "{2761E7F3-2014-44BE-99C9-1B74A18EE167}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DiagnosisOrchestrator", "DiagnosisOrchestrator\DiagnosisOrchestrator.csproj", "{06A65B17-3ECF-425D-A75B-89796A11E942}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MedicalDiagnostic.Data", "MedicalDiagnostic.Data\MedicalDiagnostic.Data.csproj", "{DB40906C-55A2-4E46-A9DB-85FFA62FA00A}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -13,9 +16,13 @@ Global
 		{3850D03A-D61B-479A-9881-75A96B4AC08C}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{3850D03A-D61B-479A-9881-75A96B4AC08C}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{3850D03A-D61B-479A-9881-75A96B4AC08C}.Release|Any CPU.Build.0 = Release|Any CPU
-		{2761E7F3-2014-44BE-99C9-1B74A18EE167}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{2761E7F3-2014-44BE-99C9-1B74A18EE167}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{2761E7F3-2014-44BE-99C9-1B74A18EE167}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{2761E7F3-2014-44BE-99C9-1B74A18EE167}.Release|Any CPU.Build.0 = Release|Any CPU
+		{06A65B17-3ECF-425D-A75B-89796A11E942}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{06A65B17-3ECF-425D-A75B-89796A11E942}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{06A65B17-3ECF-425D-A75B-89796A11E942}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{06A65B17-3ECF-425D-A75B-89796A11E942}.Release|Any CPU.Build.0 = Release|Any CPU
+		{DB40906C-55A2-4E46-A9DB-85FFA62FA00A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{DB40906C-55A2-4E46-A9DB-85FFA62FA00A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{DB40906C-55A2-4E46-A9DB-85FFA62FA00A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{DB40906C-55A2-4E46-A9DB-85FFA62FA00A}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

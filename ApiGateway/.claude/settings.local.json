@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet build:*)",
+      "Bash(docker compose:*)",
+      "Bash(docker ps:*)",
+      "Bash(docker exec:*)",
+      "Bash(ls:*)",
+      "Bash(npm run:*)",
+      "Bash(taskkill:*)",
+      "Bash(netstat:*)",
+      "Bash(xargs -I{} taskkill /F /PID {})",
+      "Bash(cmd:*)",
+      "Bash(docker info:*)",
+      "Bash(docker context:*)"
+    ]
+  }
+}
