@@ -11,7 +11,8 @@ node_modules
 dist
 dist-ssr
 *.local
-
+Models/Lung_cancer/lung_cancer_resnet_v2/models/checkpoints/*.pth
+ApiGateway/medical-diagnostic-frontend/nul
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
